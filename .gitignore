@@ -1,0 +1,69 @@
+# Operating System
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Backend (Go)
+backend/*.exe
+backend/*.exe~
+backend/*.dll
+backend/*.so
+backend/*.dylib
+backend/main
+backend/tmp/
+backend/dist/
+backend/coverage.txt
+backend/coverage.html
+
+# Frontend (Angular)
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+frontend/coverage/
+frontend/.npm
+frontend/.eslintcache
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+*.env
+
+# Docker
+docker-compose.override.yml
+
+# Kubernetes
+*.kubeconfig
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Build artifacts
+build/
+bin/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# MacOS
+.AppleDouble
+.LSOverride
+
+# Helm
+helm/jlpt5/charts/*.tgz
+
+# Minikube
+.minikube/

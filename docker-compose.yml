@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jlpt5-postgres
+    environment:
+      POSTGRES_DB: jlpt5_dev
+      POSTGRES_USER: jlpt5_user
+      POSTGRES_PASSWORD: jlpt5_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jlpt5_user -d jlpt5_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - jlpt5-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  jlpt5-network:
+    driver: bridge
