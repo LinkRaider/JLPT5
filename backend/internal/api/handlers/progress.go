@@ -32,22 +32,16 @@ func (h *ProgressHandler) GetStats(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Calculate grammar progress percentage
-	var grammarProgress float64
-	if stats.GrammarTotal > 0 {
-		grammarProgress = (float64(stats.GrammarCompleted) / float64(stats.GrammarTotal)) * 100
-	}
-
 	response := dto.ProgressStatsResponse{
 		UserID:                stats.UserID,
 		StudyStreakDays:       stats.StudyStreakDays,
 		LastStudyDate:         stats.LastStudyDate,
 		TotalStudyTimeMinutes: stats.TotalStudyTimeMinutes,
 		VocabularyLearned:     stats.VocabularyLearned,
-		VocabularyDueCount:    stats.VocabularyDueCount,
+		VocabularyMastered:    stats.VocabularyMastered,
+		VocabularyDue:         stats.VocabularyDue,
 		GrammarCompleted:      stats.GrammarCompleted,
 		GrammarTotal:          stats.GrammarTotal,
-		GrammarProgress:       grammarProgress,
 		QuizzesTaken:          stats.QuizzesTaken,
 		QuizzesPassed:         stats.QuizzesPassed,
 		AverageQuizScore:      stats.AverageQuizScore,

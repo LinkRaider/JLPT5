@@ -31,7 +31,8 @@ type UserStatistics struct {
 	LastStudyDate          *string `json:"last_study_date,omitempty"`
 	TotalStudyTimeMinutes  int     `json:"total_study_time_minutes"`
 	VocabularyLearned      int     `json:"vocabulary_learned"`
-	VocabularyDueCount     int     `json:"vocabulary_due_count"`
+	VocabularyMastered     int     `json:"vocabulary_mastered"`
+	VocabularyDue          int     `json:"vocabulary_due"`
 	GrammarCompleted       int     `json:"grammar_completed"`
 	GrammarTotal           int     `json:"grammar_total"`
 	QuizzesTaken           int     `json:"quizzes_taken"`
@@ -81,10 +82,22 @@ func (s *ProgressService) GetUserStatistics(ctx context.Context, userID int) (*U
 		FROM user_vocabulary_progress
 		WHERE user_id = $1 AND next_review_date <= CURRENT_TIMESTAMP
 	`
-	err = s.db.QueryRowContext(ctx, dueCountQuery, userID).Scan(&stats.VocabularyDueCount)
+	err = s.db.QueryRowContext(ctx, dueCountQuery, userID).Scan(&stats.VocabularyDue)
 	if err != nil {
 		s.logger.Warn("Failed to get vocabulary due count", utils.WithContext("error", err.Error()))
-		stats.VocabularyDueCount = 0
+		stats.VocabularyDue = 0
+	}
+
+	// Get vocabulary mastered count (items with ease_factor >= 2.5 indicating mastery)
+	masteredCountQuery := `
+		SELECT COUNT(*)
+		FROM user_vocabulary_progress
+		WHERE user_id = $1 AND ease_factor >= 2.5
+	`
+	err = s.db.QueryRowContext(ctx, masteredCountQuery, userID).Scan(&stats.VocabularyMastered)
+	if err != nil {
+		s.logger.Warn("Failed to get vocabulary mastered count", utils.WithContext("error", err.Error()))
+		stats.VocabularyMastered = 0
 	}
 
 	// Get total grammar count

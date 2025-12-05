@@ -7,10 +7,10 @@ type ProgressStatsResponse struct {
 	LastStudyDate         *string `json:"last_study_date,omitempty"`
 	TotalStudyTimeMinutes int     `json:"total_study_time_minutes"`
 	VocabularyLearned     int     `json:"vocabulary_learned"`
-	VocabularyDueCount    int     `json:"vocabulary_due_count"`
+	VocabularyMastered    int     `json:"vocabulary_mastered"`
+	VocabularyDue         int     `json:"vocabulary_due"`
 	GrammarCompleted      int     `json:"grammar_completed"`
 	GrammarTotal          int     `json:"grammar_total"`
-	GrammarProgress       float64 `json:"grammar_progress_percentage"`
 	QuizzesTaken          int     `json:"quizzes_taken"`
 	QuizzesPassed         int     `json:"quizzes_passed"`
 	AverageQuizScore      float64 `json:"average_quiz_score"`
