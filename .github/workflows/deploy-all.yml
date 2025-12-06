@@ -1,0 +1,223 @@
+name: Deploy All Services
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+
+env:
+  REGISTRY: ghcr.io
+  BACKEND_IMAGE: ${{ github.repository }}/backend
+  FRONTEND_IMAGE: ${{ github.repository }}/frontend
+
+jobs:
+  check-commit-message:
+    runs-on: ubuntu-latest
+    outputs:
+      should_deploy_all: ${{ steps.check.outputs.should_deploy_all }}
+    steps:
+      - name: Check commit message
+        id: check
+        run: |
+          COMMIT_MSG="${{ github.event.head_commit.message }}"
+          echo "Commit message: $COMMIT_MSG"
+
+          # Check if commit message indicates full deployment
+          if [[ "$COMMIT_MSG" =~ ^(deploy:all|release:|hotfix:) ]] || [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_deploy_all=true" >> $GITHUB_OUTPUT
+          else
+            echo "should_deploy_all=false" >> $GITHUB_OUTPUT
+          fi
+
+  build-backend:
+    needs: check-commit-message
+    if: needs.check-commit-message.outputs.should_deploy_all == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Backend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-frontend:
+    needs: check-commit-message
+    if: needs.check-commit-message.outputs.should_deploy_all == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    needs: [check-commit-message, build-backend, build-frontend]
+    if: needs.check-commit-message.outputs.should_deploy_all == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'production' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '4.0.0'
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Set environment variables
+        id: env
+        run: |
+          ENV="${{ github.event.inputs.environment || 'production' }}"
+          echo "environment=$ENV" >> $GITHUB_OUTPUT
+
+          if [ "$ENV" == "production" ]; then
+            echo "namespace=jlpt5-prod" >> $GITHUB_OUTPUT
+            echo "replicas_backend=3" >> $GITHUB_OUTPUT
+            echo "replicas_frontend=3" >> $GITHUB_OUTPUT
+          elif [ "$ENV" == "staging" ]; then
+            echo "namespace=jlpt5-staging" >> $GITHUB_OUTPUT
+            echo "replicas_backend=2" >> $GITHUB_OUTPUT
+            echo "replicas_frontend=2" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=jlpt5-dev" >> $GITHUB_OUTPUT
+            echo "replicas_backend=1" >> $GITHUB_OUTPUT
+            echo "replicas_frontend=1" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create namespace if not exists
+        run: |
+          kubectl create namespace ${{ steps.env.outputs.namespace }} --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install jlpt5 ./helm/jlpt5 \
+            --namespace ${{ steps.env.outputs.namespace }} \
+            --set backend.image.repository=${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE }} \
+            --set backend.image.tag=${{ github.sha }} \
+            --set backend.replicaCount=${{ steps.env.outputs.replicas_backend }} \
+            --set frontend.image.repository=${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --set frontend.replicaCount=${{ steps.env.outputs.replicas_frontend }} \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment
+        run: |
+          kubectl rollout status deployment/jlpt5-backend -n ${{ steps.env.outputs.namespace }}
+          kubectl rollout status deployment/jlpt5-frontend -n ${{ steps.env.outputs.namespace }}
+          kubectl get pods -n ${{ steps.env.outputs.namespace }}
+
+      - name: Run smoke tests
+        run: |
+          # Wait for services to be ready
+          sleep 30
+
+          # Get service endpoints
+          BACKEND_IP=$(kubectl get svc jlpt5-backend -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          FRONTEND_IP=$(kubectl get svc jlpt5-frontend -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+          # Test backend health endpoint
+          if [ -n "$BACKEND_IP" ]; then
+            curl -f http://$BACKEND_IP:8080/health || echo "Backend health check failed"
+          fi
+
+          # Test frontend
+          if [ -n "$FRONTEND_IP" ]; then
+            curl -f http://$FRONTEND_IP || echo "Frontend check failed"
+          fi
+
+  notify:
+    needs: [deploy]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify deployment status
+        run: |
+          if [ "${{ needs.deploy.result }}" == "success" ]; then
+            echo "✅ Deployment to ${{ github.event.inputs.environment || 'production' }} succeeded!"
+          else
+            echo "❌ Deployment to ${{ github.event.inputs.environment || 'production' }} failed!"
+          fi

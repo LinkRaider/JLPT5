@@ -1,0 +1,166 @@
+name: Database Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to run migration'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - production
+          - staging
+          - development
+      direction:
+        description: 'Migration direction'
+        required: true
+        default: 'up'
+        type: choice
+        options:
+          - up
+          - down
+      steps:
+        description: 'Number of migration steps (0 for all)'
+        required: false
+        default: '0'
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v4
+
+      - name: Configure kubectl
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+
+      - name: Set environment variables
+        id: env
+        run: |
+          ENV="${{ github.event.inputs.environment }}"
+
+          if [ "$ENV" == "production" ]; then
+            echo "namespace=jlpt5-prod" >> $GITHUB_OUTPUT
+          elif [ "$ENV" == "staging" ]; then
+            echo "namespace=jlpt5-staging" >> $GITHUB_OUTPUT
+          else
+            echo "namespace=jlpt5-dev" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get database credentials
+        id: db
+        run: |
+          # Get database credentials from Kubernetes secret
+          DB_HOST=$(kubectl get svc jlpt5-postgresql -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.spec.clusterIP}')
+          DB_PORT=5432
+          DB_NAME=$(kubectl get secret jlpt5-postgresql -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.data.POSTGRES_DB}' | base64 -d)
+          DB_USER=$(kubectl get secret jlpt5-postgresql -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.data.POSTGRES_USER}' | base64 -d)
+          DB_PASSWORD=$(kubectl get secret jlpt5-postgresql -n ${{ steps.env.outputs.namespace }} -o jsonpath='{.data.POSTGRES_PASSWORD}' | base64 -d)
+
+          echo "host=$DB_HOST" >> $GITHUB_OUTPUT
+          echo "port=$DB_PORT" >> $GITHUB_OUTPUT
+          echo "database=$DB_NAME" >> $GITHUB_OUTPUT
+          echo "user=$DB_USER" >> $GITHUB_OUTPUT
+          echo "::add-mask::$DB_PASSWORD"
+          echo "password=$DB_PASSWORD" >> $GITHUB_OUTPUT
+
+      - name: Create backup (production only)
+        if: github.event.inputs.environment == 'production'
+        run: |
+          # Port forward to database
+          kubectl port-forward -n ${{ steps.env.outputs.namespace }} svc/jlpt5-postgresql 5432:5432 &
+          PF_PID=$!
+          sleep 5
+
+          # Create backup
+          BACKUP_FILE="backup-$(date +%Y%m%d-%H%M%S).sql"
+          PGPASSWORD="${{ steps.db.outputs.password }}" pg_dump \
+            -h localhost \
+            -p 5432 \
+            -U ${{ steps.db.outputs.user }} \
+            -d ${{ steps.db.outputs.database }} \
+            -F c \
+            -f $BACKUP_FILE
+
+          # Upload backup to storage (customize based on your needs)
+          echo "Backup created: $BACKUP_FILE"
+
+          # Kill port forward
+          kill $PF_PID
+
+      - name: Run migration
+        run: |
+          # Port forward to database
+          kubectl port-forward -n ${{ steps.env.outputs.namespace }} svc/jlpt5-postgresql 5432:5432 &
+          PF_PID=$!
+          sleep 5
+
+          # Install migrate tool
+          curl -L https://github.com/golang-migrate/migrate/releases/download/v4.17.0/migrate.linux-amd64.tar.gz | tar xvz
+          sudo mv migrate /usr/local/bin/
+
+          # Build database URL
+          DB_URL="postgres://${{ steps.db.outputs.user }}:${{ steps.db.outputs.password }}@localhost:5432/${{ steps.db.outputs.database }}?sslmode=disable"
+
+          # Run migration
+          DIRECTION="${{ github.event.inputs.direction }}"
+          STEPS="${{ github.event.inputs.steps }}"
+
+          if [ "$STEPS" == "0" ]; then
+            migrate -path backend/internal/infrastructure/postgres/migrations -database "$DB_URL" $DIRECTION
+          else
+            migrate -path backend/internal/infrastructure/postgres/migrations -database "$DB_URL" $DIRECTION $STEPS
+          fi
+
+          # Kill port forward
+          kill $PF_PID
+
+      - name: Verify migration
+        run: |
+          # Port forward to database
+          kubectl port-forward -n ${{ steps.env.outputs.namespace }} svc/jlpt5-postgresql 5432:5432 &
+          PF_PID=$!
+          sleep 5
+
+          # Check migration version
+          DB_URL="postgres://${{ steps.db.outputs.user }}:${{ steps.db.outputs.password }}@localhost:5432/${{ steps.db.outputs.database }}?sslmode=disable"
+          migrate -path backend/internal/infrastructure/postgres/migrations -database "$DB_URL" version
+
+          # Kill port forward
+          kill $PF_PID
+
+      - name: Restart backend pods
+        run: |
+          kubectl rollout restart deployment/jlpt5-backend -n ${{ steps.env.outputs.namespace }}
+          kubectl rollout status deployment/jlpt5-backend -n ${{ steps.env.outputs.namespace }}
+
+      - name: Create migration log
+        if: always()
+        run: |
+          cat << EOF > migration-log.txt
+          Migration Details
+          =================
+          Environment: ${{ github.event.inputs.environment }}
+          Direction: ${{ github.event.inputs.direction }}
+          Steps: ${{ github.event.inputs.steps }}
+          Timestamp: $(date)
+          Triggered by: ${{ github.actor }}
+          Status: ${{ job.status }}
+          EOF
+
+          cat migration-log.txt
+
+      - name: Upload migration log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-log-${{ github.event.inputs.environment }}-${{ github.run_number }}
+          path: migration-log.txt

@@ -1,0 +1,125 @@
+name: Pull Request Checks
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  validate-commits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        run: |
+          echo "Checking commit messages for semantic prefixes..."
+          INVALID_COMMITS=0
+
+          for commit in $(git rev-list origin/${{ github.base_ref }}..${{ github.sha }}); do
+            MSG=$(git log --format=%B -n 1 $commit | head -n 1)
+            echo "Checking: $MSG"
+
+            # Check if commit message follows convention
+            if [[ ! "$MSG" =~ ^(feat|fix|docs|style|refactor|test|chore|build|ci|perf|revert|deploy|release|hotfix|backend|frontend):.*$ ]]; then
+              echo "❌ Invalid commit message: $MSG"
+              echo "Expected format: <type>: <description>"
+              echo "Valid types: feat, fix, docs, style, refactor, test, chore, build, ci, perf, revert, deploy, release, hotfix, backend, frontend"
+              INVALID_COMMITS=$((INVALID_COMMITS + 1))
+            else
+              echo "✅ Valid commit message"
+            fi
+          done
+
+          if [ $INVALID_COMMITS -gt 0 ]; then
+            echo ""
+            echo "Found $INVALID_COMMITS invalid commit message(s)."
+            echo "Please use semantic commit messages."
+            exit 1
+          fi
+
+  lint-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v4
+        with:
+          version: latest
+          working-directory: backend
+
+  lint-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Run linter
+        working-directory: ./frontend
+        run: npm run lint
+
+  security-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  check-helm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: '4.0.0'
+
+      - name: Lint Helm chart
+        run: helm lint ./helm/jlpt5
+
+      - name: Template Helm chart
+        run: |
+          helm template jlpt5 ./helm/jlpt5 > /tmp/manifests.yaml
+          echo "Generated manifests:"
+          cat /tmp/manifests.yaml
+
+      - name: Validate Kubernetes manifests
+        uses: azure/k8s-lint@v1
+        with:
+          manifests: /tmp/manifests.yaml
