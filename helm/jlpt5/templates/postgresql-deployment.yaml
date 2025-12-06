@@ -1,0 +1,82 @@
+{{- if .Values.postgresql.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "jlpt5.postgresql.serviceName" . }}
+  labels:
+    {{- include "jlpt5.postgresql.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "jlpt5.postgresql.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "jlpt5.postgresql.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: postgresql
+          image: "{{ .Values.postgresql.image.repository }}:{{ .Values.postgresql.image.tag }}"
+          imagePullPolicy: {{ .Values.postgresql.image.pullPolicy }}
+          ports:
+            - name: postgresql
+              containerPort: 5432
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: {{ .Values.postgresql.auth.existingSecret | default (include "jlpt5.postgresql.serviceName" .) }}
+          {{- if .Values.postgresql.healthcheck.enabled }}
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U {{ .Values.postgresql.auth.username }} -d {{ .Values.postgresql.auth.database }}
+            initialDelaySeconds: {{ .Values.postgresql.healthcheck.initialDelaySeconds }}
+            periodSeconds: {{ .Values.postgresql.healthcheck.periodSeconds }}
+            timeoutSeconds: {{ .Values.postgresql.healthcheck.timeoutSeconds }}
+            failureThreshold: {{ .Values.postgresql.healthcheck.failureThreshold }}
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U {{ .Values.postgresql.auth.username }} -d {{ .Values.postgresql.auth.database }}
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: {{ .Values.postgresql.healthcheck.timeoutSeconds }}
+            failureThreshold: 3
+          {{- end }}
+          resources:
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+      volumes:
+        - name: data
+          {{- if .Values.postgresql.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "jlpt5.postgresql.serviceName" . }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

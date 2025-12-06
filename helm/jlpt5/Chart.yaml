@@ -1,0 +1,16 @@
+apiVersion: v2
+name: jlpt5
+description: A Helm chart for JLPT5 Japanese learning application
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - jlpt
+  - japanese
+  - learning
+  - education
+maintainers:
+  - name: JLPT5 Team
+home: https://github.com/yourusername/jlpt5
+sources:
+  - https://github.com/yourusername/jlpt5

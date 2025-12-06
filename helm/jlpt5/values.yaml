@@ -1,0 +1,204 @@
+# Global configuration
+global:
+  nameOverride: ""
+  fullnameOverride: ""
+
+# PostgreSQL database configuration
+postgresql:
+  enabled: true
+  image:
+    repository: postgres
+    tag: "16-alpine"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 5432
+
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  auth:
+    database: jlpt5_dev
+    username: jlpt5_user
+    password: jlpt5_password
+    # In production, use existingSecret instead
+    existingSecret: ""
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  healthcheck:
+    enabled: true
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 5
+
+# Backend API configuration
+backend:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: jlpt5-backend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+
+  config:
+    serverPort: 8080
+    logLevel: info
+
+    # Database configuration
+    database:
+      host: ""  # Will be set to postgresql service name
+      port: 5432
+      user: jlpt5_user
+      password: jlpt5_password
+      name: jlpt5_dev
+      sslMode: disable
+
+    # JWT configuration
+    jwt:
+      secret: your-secret-key-change-in-production
+      expirationMinutes: 15
+      refreshExpirationDays: 7
+
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+    targetMemoryUtilizationPercentage: 80
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Frontend configuration
+frontend:
+  enabled: true
+  replicaCount: 2
+
+  image:
+    repository: jlpt5-frontend
+    tag: "latest"
+    pullPolicy: IfNotPresent
+
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 4200
+
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 80
+
+  livenessProbe:
+    enabled: true
+    httpGet:
+      path: /
+      port: 4200
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    enabled: true
+    httpGet:
+      path: /
+      port: 4200
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+# Ingress configuration (optional)
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: jlpt5.example.com
+      paths:
+        - path: /api
+          pathType: Prefix
+          service: backend
+        - path: /
+          pathType: Prefix
+          service: frontend
+  tls: []
+    # - secretName: jlpt5-tls
+    #   hosts:
+    #     - jlpt5.example.com
+
+# Pod security context
+podSecurityContext:
+  fsGroup: 2000
+
+# Container security context
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity rules
+affinity: {}

@@ -1,0 +1,52 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get all {{ .Release.Name }}
+
+{{- if .Values.frontend.enabled }}
+
+1. Get the frontend application URL by running these commands:
+{{- if eq .Values.frontend.service.type "NodePort" }}
+  export NODE_PORT=$(kubectl get --namespace {{ .Release.Namespace }} -o jsonpath="{.spec.ports[0].nodePort}" services {{ include "jlpt5.frontend.serviceName" . }})
+  export NODE_IP=$(kubectl get nodes --namespace {{ .Release.Namespace }} -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo http://$NODE_IP:$NODE_PORT
+{{- else if eq .Values.frontend.service.type "LoadBalancer" }}
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        You can watch the status by running:
+
+        kubectl --namespace {{ .Release.Namespace }} get service -w {{ include "jlpt5.frontend.serviceName" . }}
+
+  export SERVICE_IP=$(kubectl get svc --namespace {{ .Release.Namespace }} {{ include "jlpt5.frontend.serviceName" . }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo http://$SERVICE_IP:{{ .Values.frontend.service.port }}
+{{- else if eq .Values.frontend.service.type "ClusterIP" }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "jlpt5.frontend.serviceName" . }} 4200:{{ .Values.frontend.service.port }}
+  echo "Visit http://127.0.0.1:4200 to use your application"
+{{- end }}
+{{- end }}
+
+{{- if .Values.backend.enabled }}
+
+2. Get the backend API URL by running these commands:
+{{- if eq .Values.backend.service.type "ClusterIP" }}
+  kubectl --namespace {{ .Release.Namespace }} port-forward service/{{ include "jlpt5.backend.serviceName" . }} 8080:{{ .Values.backend.service.port }}
+  echo "Backend API available at http://127.0.0.1:8080"
+{{- end }}
+{{- end }}
+
+{{- if .Values.ingress.enabled }}
+
+3. Access your application via Ingress:
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+{{- end }}
+{{- end }}
+
+To check the status of your pods:
+  kubectl get pods --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}"
+
+To view logs:
+  kubectl logs --namespace {{ .Release.Namespace }} -l "app.kubernetes.io/instance={{ .Release.Name }}" --all-containers=true -f

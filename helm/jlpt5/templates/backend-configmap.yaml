@@ -1,0 +1,18 @@
+{{- if .Values.backend.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "jlpt5.backend.serviceName" . }}
+  labels:
+    {{- include "jlpt5.backend.labels" . | nindent 4 }}
+data:
+  SERVER_PORT: {{ .Values.backend.config.serverPort | quote }}
+  LOG_LEVEL: {{ .Values.backend.config.logLevel | quote }}
+  DB_HOST: {{ .Values.backend.config.database.host | default (include "jlpt5.postgresql.serviceName" .) | quote }}
+  DB_PORT: {{ .Values.backend.config.database.port | quote }}
+  DB_USER: {{ .Values.backend.config.database.user | quote }}
+  DB_NAME: {{ .Values.backend.config.database.name | quote }}
+  DB_SSL_MODE: {{ .Values.backend.config.database.sslMode | quote }}
+  JWT_EXPIRATION_MINUTES: {{ .Values.backend.config.jwt.expirationMinutes | quote }}
+  JWT_REFRESH_EXPIRATION_DAYS: {{ .Values.backend.config.jwt.refreshExpirationDays | quote }}
+{{- end }}
