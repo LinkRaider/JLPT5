@@ -29,6 +29,9 @@ WORKDIR /root/
 # Copy the binary from builder
 COPY --from=builder /app/bin/api .
 
+# Copy migrations directory
+COPY --from=builder /app/internal/infrastructure/postgres/migrations ./internal/infrastructure/postgres/migrations
+
 # Expose the application port
 EXPOSE 8080
 
