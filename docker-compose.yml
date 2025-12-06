@@ -21,6 +21,52 @@ services:
     networks:
       - jlpt5-network
 
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: jlpt5-backend
+    environment:
+      # Server configuration
+      SERVER_PORT: 8080
+
+      # Database configuration
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: jlpt5_user
+      DB_PASSWORD: jlpt5_password
+      DB_NAME: jlpt5_dev
+      DB_SSL_MODE: disable
+
+      # JWT configuration
+      JWT_SECRET: your-secret-key-change-in-production
+      JWT_EXPIRATION_MINUTES: 15
+      JWT_REFRESH_EXPIRATION_DAYS: 7
+
+      # Logging
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - jlpt5-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: jlpt5-frontend
+    ports:
+      - "4200:4200"
+    depends_on:
+      - backend
+    networks:
+      - jlpt5-network
+    restart: unless-stopped
+
 volumes:
   postgres_data:
     driver: local
